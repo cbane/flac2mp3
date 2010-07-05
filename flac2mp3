@@ -12,6 +12,10 @@ tag_mapping = { "artist": mutagen.id3.TPE1,
                 "date": mutagen.id3.TDRC,
                 "discnumber": mutagen.id3.TPOS,
                 "composer": mutagen.id3.TCOM }
+txxx_tags = set([ "replaygain_track_gain",
+                  "replaygain_track_peak",
+                  "replaygain_album_gain",
+                  "replaygain_album_peak" ])
 
 def main():
     description = "Transencodes the specified FLAC files to MP3, while preserving as much metadata as possilbe."
@@ -83,6 +87,8 @@ def add_mp3_metadata(dest, metadata):
     for tag, value in tags.items():
         if tag in tag_mapping:
             id3.add(tag_mapping[tag](encoding=3, text=value))
+        elif tag in txxx_tags:
+            id3.add(mutagen.id3.TXXX(encoding=0, desc=tag.upper(), text=value))
 
     if "tracknumber" in tags:
         if "tracktotal" in tags:
