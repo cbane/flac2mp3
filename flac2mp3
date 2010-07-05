@@ -1,83 +1,35 @@
 #!/usr/bin/python
 
-import os, sys, getopt, subprocess, signal
+import os
+import optparse
+import subprocess
+import mutagen.flac, mutagen.id3
 
-metaflac = "metaflac"
 lame = "lame"
-tag_mapping = { "artist": "--ta",
-                "album": "--tl",
-                "title": "--tt",
-                "date": "--ty",
-                "discnumber": "--TPOS" }
+tag_mapping = { "artist": mutagen.id3.TPE1,
+                "album": mutagen.id3.TALB,
+                "title": mutagen.id3.TIT2,
+                "date": mutagen.id3.TDRC,
+                "discnumber": mutagen.id3.TPOS,
+                "composer": mutagen.id3.TCOM }
 
-def usage():
-    print("Usage: %s [ -o <base output dir> ] file [ file ... ]" % os.path.basename(sys.argv[0]))
-
-def get_flac_tags(source):
-    tags = {}
-    reader = subprocess.Popen(["metaflac", "--export-tags-to=-", source], stdout=subprocess.PIPE)
-    reader.wait()
-    for line in reader.stdout.readlines():
-        (tag, value) = line.split("=", 1)
-        if len(value.strip()) > 0:
-            tags[tag.lower()] = value.strip()
-    return tags
-
-def do_encode(source, dest):
-    print(source)
-
-    args = [lame, "--quiet", "--noreplaygain", "-V", "0", "--add-id3v2"]
-
-    flac_tags = get_flac_tags(source)
-    for tag in ["artist", "album", "title", "date"]:
-        if tag in flac_tags:
-            val = flac_tags[tag]
-            args.extend([ tag_mapping[tag], val ])
-
-    if "tracknumber" in flac_tags:
-        if "tracktotal" in flac_tags:
-            args.extend(['--tn', '%s/%s' % (flac_tags['tracknumber'], flac_tags['tracktotal'])])
-        elif "totaltracks" in flac_tags:
-            args.extend(['--tn', '%s/%s' % (flac_tags['tracknumber'], flac_tags['totaltracks'])])
-        else:
-            args.extend(['--tn', flac_tags['tracknumber']])
-
-    if "discnumber" in flac_tags:
-        args.extend(['--tv', 'TPOS=%s' % (flac_tags['discnumber'])])
-        
-    args.extend([source, dest])
-    
-    subprocess.call(args)
-
-def do_background_encode(source, dest):
-    if os.fork() != 0:
-        return
-    else:
-        do_encode(source, dest)
-        sys.exit(0)
-
-def main(argv):
-    outdir = ""
-    parallel = 1
-    
-    try:
-        optlist, args = getopt.getopt(argv, "o:j:")
-    except getopt.GetoptError, err:
-        print str(err)
-        usage()
-        sys.exit(1)
-    for opt, arg in optlist:
-        if opt == "-o":
-            outdir = arg
-        elif opt == "-j":
-            parallel = int(arg)
-        else:
-            assert False, "unhandled option"
+def main():
+    description = "Transencodes the specified FLAC files to MP3, while preserving as much metadata as possilbe."
+    parser = optparse.OptionParser(usage="%prog [ options ] file [ file ... ] ",
+                                   description=description)
+    parser.add_option("-j", "--parallel", type="int", dest="parallel", default=1,
+                      metavar="JOBS", help="number of transencodes to run in parallel")
+    parser.add_option("-o", "--output", dest="outdir", default=".",
+                      metavar="DIR", help="output directory")
+    (options, args) = parser.parse_args()
+    if len(args) == 0:
+        parser.print_help()
+        exit(1)
     
     filelist = []
 
     for file in args:
-        destfile = os.path.join(outdir, os.path.splitext(file)[0] + ".mp3")
+        destfile = os.path.join(options.outdir, os.path.splitext(file)[0] + ".mp3")
         destdir = os.path.dirname(destfile)
         
         try:
@@ -91,7 +43,7 @@ def main(argv):
     job_count = 0
 
     for entry in filelist:
-        while job_count >= parallel:
+        while job_count >= options.parallel:
             os.wait()
             job_count -= 1
 
@@ -102,5 +54,50 @@ def main(argv):
         os.wait()
         job_count -= 1
 
+def do_background_encode(source, dest):
+    if os.fork() != 0:
+        return
+    else:
+        do_encode(source, dest)
+        exit(0)
+
+def do_encode(source, dest):
+    print(source)
+
+    metadata = get_flac_metadata(source)
+
+    args = [lame, "--quiet", "--noreplaygain", "-V", "0", "--add-id3v2"]
+    args.extend([source, dest])
+    subprocess.call(args)
+
+    add_mp3_metadata(dest, metadata)
+
+def get_flac_metadata(source):
+    return mutagen.flac.FLAC(source)
+
+def add_mp3_metadata(dest, metadata):
+    tags = {}
+    for tag, value in metadata.tags:
+        tags[tag.lower()] = value
+    id3 = mutagen.id3.ID3(dest)
+    for tag, value in tags.items():
+        if tag in tag_mapping:
+            id3.add(tag_mapping[tag](encoding=3, text=value))
+
+    if "tracknumber" in tags:
+        if "tracktotal" in tags:
+            id3.add(mutagen.id3.TRCK(encoding=3, text=u"%i/%i" % (int(tags["tracknumber"]), int(tags["tracktotal"]))))
+        elif "totaltracks" in tags:
+            id3.add(mutagen.id3.TRCK(encoding=3, text=u"%i/%i" % (int(tags["tracknumber"]), int(tags["totaltracks"]))))
+        else:
+            id3.add(mutagen.id3.TRCK(encoding=3, text=unicode(int(tags["tracknumber"]))))
+
+    for picture in metadata.pictures:
+        id3.add(mutagen.id3.APIC(type = picture.type, mime = picture.mime,
+                                 encoding = 3, desc = picture.desc,
+                                 data = picture.data))
+
+    id3.save(v1=2)
+
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    main()
