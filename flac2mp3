@@ -97,7 +97,33 @@ def add_mp3_metadata(dest, metadata):
                                  encoding = 3, desc = picture.desc,
                                  data = picture.data))
 
+    convert_replaygain(metadata, id3)
+
     id3.save(v1=2)
+
+def convert_replaygain(flac, id3):
+    if "REPLAYGAIN_ALBUM_GAIN" in flac.tags and "REPLAYGAIN_ALBUM_PEAK" in flac.tags:
+        gain = float(flac.tags["REPLAYGAIN_ALBUM_GAIN"][0].split(" ")[0])
+        peak = float(flac.tags["REPLAYGAIN_ALBUM_PEAK"][0])
+        sc_gain_1000 = gain_to_sc(gain, 1000)
+        sc_gain_2500 = gain_to_sc(gain, 2500)
+        sc_peak = peak_to_sc(peak)
+        soundcheck = [
+            sc_gain_1000, sc_gain_1000,
+            sc_gain_2500, sc_gain_2500,
+            "0002CA8", "0002CA8",
+            sc_peak, sc_peak,
+            "0002CA8", "0002CA8" ]
+        id3.add(mutagen.id3.COMM(encoding=0, desc="iTunNORM", lang="eng", text=" ".join(soundcheck)))
+
+def gain_to_sc(gain, base):
+    result = round((10 ** (-gain / 10)) * base)
+    if result > 65534:
+        result = 65534
+    return "%08X" % result
+
+def peak_to_sc(peak):
+    return "%08X" % (peak * 32767)
 
 if __name__ == "__main__":
     main()
