@@ -1,6 +1,6 @@
 #!/usr/bin/python
+"""Transencode FLAC files to MP3 while preserving metadata."""
 
-# flac2mp3, a program to transencode FLAC files to MP3 while preserving metadata
 # Copyright (C) 2009-2010  Courtney Bane
 
 # This program is free software: you can redistribute it and/or modify it under
@@ -34,11 +34,15 @@ txxx_tags = set([ "replaygain_track_gain",
                   "replaygain_album_peak" ])
 
 def main():
-    description = "Transencodes the specified FLAC files to MP3, while preserving as much metadata as possilbe."
+    """The main logic of the program"""
+    description = \
+        "Transencodes the specified FLAC files to MP3, while preserving as " \
+        "much metadata as possible."
     parser = optparse.OptionParser(usage="%prog [ options ] file [ file ... ] ",
                                    description=description)
-    parser.add_option("-j", "--parallel", type="int", dest="parallel", default=1,
-                      metavar="JOBS", help="number of transencodes to run in parallel")
+    parser.add_option("-j", "--parallel", type="int", dest="parallel",
+                      default=1, metavar="JOBS",
+                      help="number of transencodes to run in parallel")
     parser.add_option("-o", "--output", dest="outdir", default=".",
                       metavar="DIR", help="output directory")
     (options, args) = parser.parse_args()
@@ -48,8 +52,9 @@ def main():
     
     filelist = []
 
-    for file in args:
-        destfile = os.path.join(options.outdir, os.path.splitext(file)[0] + ".mp3")
+    for sourcefile in args:
+        destfile = os.path.join(options.outdir,
+                                os.path.splitext(sourcefile)[0] + ".mp3")
         destdir = os.path.dirname(destfile)
         
         try:
@@ -57,7 +62,7 @@ def main():
         except OSError:
             subprocess.call(["mkdir", "-p", destdir])
 
-        entry = ( file, destfile )
+        entry = ( sourcefile, destfile )
         filelist.append(entry)
 
     job_count = 0
@@ -75,6 +80,7 @@ def main():
         job_count -= 1
 
 def do_background_encode(source, dest):
+    """Fork off a background process to perform the transencode"""
     if os.fork() != 0:
         return
     else:
@@ -82,6 +88,7 @@ def do_background_encode(source, dest):
         exit(0)
 
 def do_encode(source, dest):
+    """Perform the transencode, and copy the metadata"""
     print(source)
 
     metadata = get_flac_metadata(source)
@@ -93,9 +100,11 @@ def do_encode(source, dest):
     add_mp3_metadata(dest, metadata)
 
 def get_flac_metadata(source):
+    """Get the metadata from a flac file"""
     return mutagen.flac.FLAC(source)
 
 def add_mp3_metadata(dest, metadata):
+    """Store the specified metadata to the MP3 file"""
     tags = {}
     for tag, value in metadata.tags:
         tags[tag.lower()] = value
@@ -108,11 +117,12 @@ def add_mp3_metadata(dest, metadata):
 
     if "tracknumber" in tags:
         if "tracktotal" in tags:
-            id3.add(mutagen.id3.TRCK(encoding=3, text=u"%i/%i" % (int(tags["tracknumber"]), int(tags["tracktotal"]))))
+            tracknum = u"{0.tracknumber}/{0.tracktotal}".format(tags)
         elif "totaltracks" in tags:
-            id3.add(mutagen.id3.TRCK(encoding=3, text=u"%i/%i" % (int(tags["tracknumber"]), int(tags["totaltracks"]))))
+            tracknum = u"{0.tracknumber}/{0.totaltracks}".format(tags)
         else:
-            id3.add(mutagen.id3.TRCK(encoding=3, text=unicode(int(tags["tracknumber"]))))
+            tracknum = unicode(int(tags["tracknumber"]))
+        id3.add(mutagen.id3.TRCK(encoding=3, text=tracknum))
 
     for picture in metadata.pictures:
         id3.add(mutagen.id3.APIC(type = picture.type, mime = picture.mime,
@@ -124,7 +134,9 @@ def add_mp3_metadata(dest, metadata):
     id3.save(v1=2)
 
 def convert_replaygain(flac, id3):
-    if "REPLAYGAIN_ALBUM_GAIN" in flac.tags and "REPLAYGAIN_ALBUM_PEAK" in flac.tags:
+    """Converts FLAC ReplayGain tags to iTunes Sound Check ID3 comment."""
+    if "REPLAYGAIN_ALBUM_GAIN" in flac.tags and \
+            "REPLAYGAIN_ALBUM_PEAK" in flac.tags:
         gain = float(flac.tags["REPLAYGAIN_ALBUM_GAIN"][0].split(" ")[0])
         peak = float(flac.tags["REPLAYGAIN_ALBUM_PEAK"][0])
         sc_gain_1000 = gain_to_sc(gain, 1000)
@@ -136,15 +148,18 @@ def convert_replaygain(flac, id3):
             "0002CA8", "0002CA8",
             sc_peak, sc_peak,
             "0002CA8", "0002CA8" ]
-        id3.add(mutagen.id3.COMM(encoding=0, desc="iTunNORM", lang="eng", text=" ".join(soundcheck)))
+        id3.add(mutagen.id3.COMM(encoding=0, desc="iTunNORM", lang="eng",
+                                 text=" ".join(soundcheck)))
 
 def gain_to_sc(gain, base):
+    """Converts a ReplayGain gain value to iTunes Sound Check format."""
     result = round((10 ** (-gain / 10)) * base)
     if result > 65534:
         result = 65534
     return "%08X" % result
 
 def peak_to_sc(peak):
+    """Converts a ReplayGain peak value to iTunes Sound Check format."""
     return "%08X" % (peak * 32767)
 
 if __name__ == "__main__":
