@@ -21,7 +21,6 @@ import optparse
 import subprocess
 import mutagen.flac, mutagen.id3
 
-lame = "lame"
 tag_mapping = { "artist": mutagen.id3.TPE1,
                 "album": mutagen.id3.TALB,
                 "title": mutagen.id3.TIT2,
@@ -93,7 +92,7 @@ def do_encode(source, dest):
 
     metadata = get_flac_metadata(source)
 
-    args = [lame, "--quiet", "--noreplaygain", "-V", "0", "--add-id3v2"]
+    args = ["lame", "--quiet", "--noreplaygain", "-V", "0", "--add-id3v2"]
     args.extend([source, dest])
     subprocess.call(args)
 
