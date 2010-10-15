@@ -155,11 +155,11 @@ def gain_to_sc(gain, base):
     result = round((10 ** (-gain / 10)) * base)
     if result > 65534:
         result = 65534
-    return "%08X" % result
+    return "{0:08X}".format(result)
 
 def peak_to_sc(peak):
     """Converts a ReplayGain peak value to iTunes Sound Check format."""
-    return "%08X" % (peak * 32767)
+    return "{0:08X}".format(peak * 32767)
 
 if __name__ == "__main__":
     main()
