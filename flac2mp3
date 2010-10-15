@@ -152,14 +152,14 @@ def convert_replaygain(flac, id3):
 
 def gain_to_sc(gain, base):
     """Converts a ReplayGain gain value to iTunes Sound Check format."""
-    result = round((10 ** (-gain / 10)) * base)
+    result = int(round((10 ** (-gain / 10)) * base))
     if result > 65534:
         result = 65534
     return "{0:08X}".format(result)
 
 def peak_to_sc(peak):
     """Converts a ReplayGain peak value to iTunes Sound Check format."""
-    return "{0:08X}".format(peak * 32767)
+    return "{0:08X}".format(int(round(peak * 32767)))
 
 if __name__ == "__main__":
     main()
