@@ -92,9 +92,15 @@ def do_encode(source, dest):
 
     metadata = get_flac_metadata(source)
 
+    args = ["flac", "--decode", "--silent", "--stdout", source]
+    flacp = subprocess.Popen(args, stdout=subprocess.PIPE, bufsize=1024*1024)
+
     args = ["lame", "--quiet", "--noreplaygain", "-V", "0", "--add-id3v2"]
-    args.extend([source, dest])
-    subprocess.call(args)
+    args.extend(["-", dest])
+    lamep = subprocess.Popen(args, stdin=flacp.stdout, bufsize=0)
+
+    flacp.wait()
+    lamep.wait()
 
     add_mp3_metadata(dest, metadata)
 
