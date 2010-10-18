@@ -122,9 +122,9 @@ def add_mp3_metadata(dest, metadata):
 
     if "tracknumber" in tags:
         if "tracktotal" in tags:
-            tracknum = u"{0.tracknumber}/{0.tracktotal}".format(tags)
+            tracknum = u"{0[tracknumber]}/{0[tracktotal]}".format(tags)
         elif "totaltracks" in tags:
-            tracknum = u"{0.tracknumber}/{0.totaltracks}".format(tags)
+            tracknum = u"{0[tracknumber]}/{0[totaltracks]}".format(tags)
         else:
             tracknum = unicode(int(tags["tracknumber"]))
         id3.add(mutagen.id3.TRCK(encoding=3, text=tracknum))
