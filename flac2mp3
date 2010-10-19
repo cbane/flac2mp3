@@ -18,6 +18,7 @@
 
 import os
 import optparse
+import multiprocessing
 import subprocess
 import mutagen.flac, mutagen.id3
 
@@ -64,26 +65,11 @@ def main():
         entry = ( sourcefile, destfile )
         filelist.append(entry)
 
-    job_count = 0
-
+    pool = multiprocessing.Pool(processes=options.jobs)
     for entry in filelist:
-        while job_count >= options.jobs:
-            os.wait()
-            job_count -= 1
-
-        background(do_encode, entry[0], entry[1])
-        job_count += 1
-    
-    while job_count > 0:
-        os.wait()
-        job_count -= 1
-
-def background(func, *args, **kwargs):
-    """Run the given function in a background process."""
-    if os.fork() != 0:
-        return
-    func(*args, **kwargs)
-    exit(0)
+        pool.apply_async(do_encode, args=(entry[0], entry[1]))
+    pool.close()
+    pool.join()
 
 def do_encode(source, dest):
     """Perform the transencode, and copy the metadata"""
