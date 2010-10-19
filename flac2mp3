@@ -71,20 +71,19 @@ def main():
             os.wait()
             job_count -= 1
 
-        do_background_encode(entry[0], entry[1])
+        background(do_encode, entry[0], entry[1])
         job_count += 1
     
     while job_count > 0:
         os.wait()
         job_count -= 1
 
-def do_background_encode(source, dest):
-    """Fork off a background process to perform the transencode"""
+def background(func, *args, **kwargs):
+    """Run the given function in a background process."""
     if os.fork() != 0:
         return
-    else:
-        do_encode(source, dest)
-        exit(0)
+    func(*args, **kwargs)
+    exit(0)
 
 def do_encode(source, dest):
     """Perform the transencode, and copy the metadata"""
