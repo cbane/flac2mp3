@@ -39,7 +39,7 @@ def main():
         "much metadata as possible."
     parser = optparse.OptionParser(usage="%prog [ options ] file [ file ... ] ",
                                    description=description)
-    parser.add_option("-j", "--parallel", type="int", dest="parallel",
+    parser.add_option("-j", "--jobs", type="int", dest="jobs",
                       default=1, metavar="JOBS",
                       help="number of transencodes to run in parallel")
     parser.add_option("-o", "--output", dest="outdir", default=".",
@@ -67,7 +67,7 @@ def main():
     job_count = 0
 
     for entry in filelist:
-        while job_count >= options.parallel:
+        while job_count >= options.jobs:
             os.wait()
             job_count -= 1
 
