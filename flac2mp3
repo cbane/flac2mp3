@@ -1,6 +1,8 @@
 #!/usr/bin/python
 """Transencode FLAC files to MP3 while preserving metadata."""
 
+from __future__ import print_function
+
 # Copyright (C) 2009-2010  Courtney Bane
 
 # This program is free software: you can redistribute it and/or modify it under
@@ -17,7 +19,7 @@
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
-import optparse
+import argparse
 import subprocess
 import mutagen.flac, mutagen.id3
 
@@ -37,22 +39,22 @@ def main():
     description = \
         "Transencodes the specified FLAC files to MP3, while preserving as " \
         "much metadata as possible."
-    parser = optparse.OptionParser(usage="%prog [ options ] file [ file ... ] ",
-                                   description=description)
-    parser.add_option("-j", "--jobs", type="int", dest="jobs",
-                      default=1, metavar="JOBS",
-                      help="number of transencodes to run in parallel")
-    parser.add_option("-o", "--output", dest="outdir", default=".",
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("-j", "--jobs", type=int, dest="jobs",
+                        default=1, metavar="JOBS",
+                        help="number of transencodes to run in parallel")
+    parser.add_argument("-o", "--output", dest="outdir", default=".",
                       metavar="DIR", help="output directory")
-    (options, args) = parser.parse_args()
-    if len(args) == 0:
-        parser.print_help()
-        exit(1)
-    
+    parser.add_argument('-V', metavar='QUALITY', dest='qual', default='0',
+                        choices=map(str, range(0, 10)),
+                        help='LAME VBR quality setting')
+    parser.add_argument('files', metavar='FILE', nargs='+', help='FLAC file(s) to transencode')
+    args = parser.parse_args()
+
     filelist = []
 
-    for sourcefile in args:
-        destfile = os.path.join(options.outdir,
+    for sourcefile in args.files:
+        destfile = os.path.join(args.outdir,
                                 os.path.splitext(sourcefile)[0] + ".mp3")
         destdir = os.path.dirname(destfile)
         
@@ -67,11 +69,11 @@ def main():
     job_count = 0
 
     for entry in filelist:
-        while job_count >= options.jobs:
+        while job_count >= args.jobs:
             os.wait()
             job_count -= 1
 
-        background(do_encode, entry[0], entry[1])
+        background(do_encode, args, entry[0], entry[1])
         job_count += 1
     
     while job_count > 0:
@@ -85,18 +87,17 @@ def background(func, *args, **kwargs):
     func(*args, **kwargs)
     exit(0)
 
-def do_encode(source, dest):
+def do_encode(args, source, dest):
     """Perform the transencode, and copy the metadata"""
     print(source)
 
     metadata = get_flac_metadata(source)
 
-    args = ["flac", "--decode", "--silent", "--stdout", source]
-    flacp = subprocess.Popen(args, stdout=subprocess.PIPE, bufsize=1024*1024)
+    pargs = ["flac", "--decode", "--silent", "--stdout", source]
+    flacp = subprocess.Popen(pargs, stdout=subprocess.PIPE, bufsize=1024*1024)
 
-    args = ["lame", "--quiet", "--noreplaygain", "-V", "0", "--add-id3v2"]
-    args.extend(["-", dest])
-    lamep = subprocess.Popen(args, stdin=flacp.stdout, bufsize=0)
+    pargs = ["lame", "--quiet", "--noreplaygain", "-V", args.qual, "--add-id3v2", '-', dest]
+    lamep = subprocess.Popen(pargs, stdin=flacp.stdout, bufsize=0)
 
     flacp.wait()
     lamep.wait()
