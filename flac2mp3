@@ -3,7 +3,7 @@
 
 from __future__ import print_function
 
-# Copyright (C) 2009-2010  Courtney Bane
+# Copyright (C) 2009-2010, 2013  Courtney Bane
 
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -19,8 +19,10 @@ from __future__ import print_function
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import os
+import sys
 import argparse
 import multiprocessing
+import signal
 import subprocess
 import mutagen.flac, mutagen.id3
 
@@ -52,26 +54,50 @@ def main():
     parser.add_argument('files', metavar='FILE', nargs='+', help='FLAC file(s) to transencode')
     args = parser.parse_args()
 
-    filelist = []
+    if args.jobs == 0:
+        args.jobs = multiprocessing.cpu_count()
 
+    job_queue = multiprocessing.Queue()
+
+    destdirs = {}
     for sourcefile in args.files:
         destfile = os.path.join(args.outdir,
                                 os.path.splitext(sourcefile)[0] + ".mp3")
         destdir = os.path.dirname(destfile)
         
-        try:
-            os.stat(destdir)
-        except OSError:
-            subprocess.call(["mkdir", "-p", destdir])
+        if destdir not in destdirs:
+            try:
+                os.stat(destdir)
+            except OSError:
+                subprocess.call(["mkdir", "-p", destdir])
+            destdirs[destdir] = True
 
         entry = ( sourcefile, destfile )
-        filelist.append(entry)
+        job_queue.put((do_encode, args, sourcefile, destfile))
 
-    pool = multiprocessing.Pool(processes=args.jobs)
-    for entry in filelist:
-        pool.apply_async(do_encode, args=(args, entry[0], entry[1]))
-    pool.close()
-    pool.join()
+    workers = []
+    for _ in range(args.jobs):
+        tmp = multiprocessing.Process(target=worker_func, args=(job_queue,))
+        tmp.start()
+        workers.append(tmp)
+
+    try:
+        for worker in workers:
+            worker.join()
+    except KeyboardInterrupt:
+        for worker in workers:
+            worker.terminate()
+            worker.join()
+        sys.exit(130)
+
+def worker_func(job_queue):
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    while not job_queue.empty():
+        try:
+            job = job_queue.get(block=False)
+            job[0](*job[1:])
+        except Queue.Empty:
+            pass
 
 def do_encode(args, source, dest):
     """Perform the transencode, and copy the metadata"""
