@@ -1,9 +1,7 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 """Transencode FLAC files to MP3 while preserving metadata."""
 
-from __future__ import print_function
-
-# Copyright (C) 2009-2010, 2013  Courtney Bane
+# Copyright (C) 2009-2010, 2013, 2019  Courtney Bane
 
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -18,24 +16,32 @@ from __future__ import print_function
 # You should have received a copy of the GNU General Public License along with
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import os
-import sys
 import argparse
 import multiprocessing
+import os
 import signal
 import subprocess
-import mutagen.flac, mutagen.id3
+import sys
 
-tag_mapping = { "artist": mutagen.id3.TPE1,
-                "album": mutagen.id3.TALB,
-                "title": mutagen.id3.TIT2,
-                "date": mutagen.id3.TDRC,
-                "discnumber": mutagen.id3.TPOS,
-                "composer": mutagen.id3.TCOM }
-txxx_tags = set([ "replaygain_track_gain",
-                  "replaygain_track_peak",
-                  "replaygain_album_gain",
-                  "replaygain_album_peak" ])
+import mutagen.flac
+import mutagen.id3
+
+tag_mapping = {
+    "artist": mutagen.id3.TPE1,
+    "albumartist": mutagen.id3.TPE2,
+    "album": mutagen.id3.TALB,
+    "title": mutagen.id3.TIT2,
+    "date": mutagen.id3.TDRC,
+    "discnumber": mutagen.id3.TPOS,
+    "composer": mutagen.id3.TCOM,
+}
+txxx_tags = set([
+    "replaygain_track_gain",
+    "replaygain_track_peak",
+    "replaygain_album_gain",
+    "replaygain_album_peak",
+])
+
 
 def main():
     """The main logic of the program"""
@@ -47,11 +53,12 @@ def main():
                         default=1, metavar="JOBS",
                         help="number of transencodes to run in parallel")
     parser.add_argument("-o", "--output", dest="outdir", default=".",
-                      metavar="DIR", help="output directory")
+                        metavar="DIR", help="output directory")
     parser.add_argument('-V', metavar='QUALITY', dest='qual', default='0',
                         choices=map(str, range(0, 10)),
                         help='LAME VBR quality setting')
-    parser.add_argument('files', metavar='FILE', nargs='+', help='FLAC file(s) to transencode')
+    parser.add_argument('files', metavar='FILE', nargs='+',
+                        help='FLAC file(s) to transencode')
     args = parser.parse_args()
 
     if args.jobs == 0:
@@ -64,7 +71,7 @@ def main():
         destfile = os.path.join(args.outdir,
                                 os.path.splitext(sourcefile)[0] + ".mp3")
         destdir = os.path.dirname(destfile)
-        
+
         if destdir not in destdirs:
             try:
                 os.stat(destdir)
@@ -72,7 +79,6 @@ def main():
                 subprocess.call(["mkdir", "-p", destdir])
             destdirs[destdir] = True
 
-        entry = ( sourcefile, destfile )
         job_queue.put((do_encode, args, sourcefile, destfile))
 
     workers = []
@@ -90,14 +96,16 @@ def main():
             worker.join()
         sys.exit(130)
 
+
 def worker_func(job_queue):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     while not job_queue.empty():
         try:
             job = job_queue.get(block=False)
             job[0](*job[1:])
-        except Queue.Empty:
+        except multiprocessing.Queue.Empty:
             pass
+
 
 def do_encode(args, source, dest):
     """Perform the transencode, and copy the metadata"""
@@ -108,7 +116,8 @@ def do_encode(args, source, dest):
     pargs = ["flac", "--decode", "--silent", "--stdout", source]
     flacp = subprocess.Popen(pargs, stdout=subprocess.PIPE, bufsize=1024*1024)
 
-    pargs = ["lame", "--quiet", "--noreplaygain", "-V", args.qual, "--add-id3v2", '-', dest]
+    pargs = ["lame", "--quiet", "--noreplaygain", "-V", args.qual,
+             "--add-id3v2", '-', dest]
     lamep = subprocess.Popen(pargs, stdin=flacp.stdout, bufsize=0)
 
     flacp.wait()
@@ -116,9 +125,11 @@ def do_encode(args, source, dest):
 
     add_mp3_metadata(dest, metadata)
 
+
 def get_flac_metadata(source):
     """Get the metadata from a flac file"""
     return mutagen.flac.FLAC(source)
+
 
 def add_mp3_metadata(dest, metadata):
     """Store the specified metadata to the MP3 file"""
@@ -134,21 +145,22 @@ def add_mp3_metadata(dest, metadata):
 
     if "tracknumber" in tags:
         if "tracktotal" in tags:
-            tracknum = u"{0[tracknumber]}/{0[tracktotal]}".format(tags)
+            tracknum = "{0[tracknumber]}/{0[tracktotal]}".format(tags)
         elif "totaltracks" in tags:
-            tracknum = u"{0[tracknumber]}/{0[totaltracks]}".format(tags)
+            tracknum = "{0[tracknumber]}/{0[totaltracks]}".format(tags)
         else:
-            tracknum = unicode(int(tags["tracknumber"]))
+            tracknum = str(int(tags["tracknumber"]))
         id3.add(mutagen.id3.TRCK(encoding=3, text=tracknum))
 
     for picture in metadata.pictures:
-        id3.add(mutagen.id3.APIC(type = picture.type, mime = picture.mime,
-                                 encoding = 3, desc = picture.desc,
-                                 data = picture.data))
+        id3.add(mutagen.id3.APIC(type=picture.type, mime=picture.mime,
+                                 encoding=3, desc=picture.desc,
+                                 data=picture.data))
 
     convert_replaygain(metadata, id3)
 
     id3.save(v1=2)
+
 
 def convert_replaygain(flac, id3):
     """Converts FLAC ReplayGain tags to iTunes Sound Check ID3 comment."""
@@ -164,9 +176,11 @@ def convert_replaygain(flac, id3):
             sc_gain_2500, sc_gain_2500,
             "0002CA8", "0002CA8",
             sc_peak, sc_peak,
-            "0002CA8", "0002CA8" ]
+            "0002CA8", "0002CA8",
+        ]
         id3.add(mutagen.id3.COMM(encoding=0, desc="iTunNORM", lang="eng",
                                  text=" ".join(soundcheck)))
+
 
 def gain_to_sc(gain, base):
     """Converts a ReplayGain gain value to iTunes Sound Check format."""
@@ -175,9 +189,11 @@ def gain_to_sc(gain, base):
         result = 65534
     return "{0:08X}".format(result)
 
+
 def peak_to_sc(peak):
     """Converts a ReplayGain peak value to iTunes Sound Check format."""
     return "{0:08X}".format(int(round(peak * 32767)))
+
 
 if __name__ == "__main__":
     main()
