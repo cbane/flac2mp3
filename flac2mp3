@@ -1,7 +1,7 @@
 #!/usr/bin/python3
-"""Transencode FLAC files to MP3 while preserving metadata."""
+"""Transencode FLAC files to MP3 or ALAC while preserving metadata."""
 
-# Copyright (C) 2009-2010, 2013, 2019  Courtney Bane
+# Copyright (C) 2009-2010, 2013, 2019-2020  Courtney Bane
 
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -19,7 +19,7 @@
 import argparse
 import multiprocessing
 import os
-import signal
+import pathlib
 import subprocess
 import sys
 
@@ -45,85 +45,150 @@ txxx_tags = set([
 
 def main():
     """The main logic of the program"""
+    args = parse_args()
+
+    joblist = []
+
+    destdirs = {}
+    for sourcefile in args.files:
+        destfile = os.path.join(args.outdir, args.make_destfile(sourcefile))
+        destdir = os.path.dirname(destfile)
+
+        if destdir not in destdirs:
+            pathlib.Path(destdir).mkdir(parents=True, exist_ok=True)
+            destdirs[destdir] = True
+
+        entry = {'source': sourcefile, 'dest': destfile}
+        joblist.append(entry)
+
+    pool = multiprocessing.Pool(processes=args.jobs)
+    for entry in joblist:
+        pool.apply_async(args.do_encode, args=(args, entry['source'], entry['dest']))
+    pool.close()
+    try:
+        pool.join()
+    except KeyboardInterrupt:
+        pool.terminate()
+        pool.join()
+        sys.exit(1)
+
+
+def replace_extension(filename, new_ext):
+    return os.path.splitext(filename)[0] + '.' + new_ext
+
+
+def make_destfile_mp3(sourcefile):
+    return replace_extension(sourcefile, "mp3")
+
+
+def make_destfile_alac(sourcefile):
+    return replace_extension(sourcefile, "m4a")
+
+
+def parse_args():
+    prog_name = os.path.basename(sys.argv[0])
+    if prog_name == 'flac2mp3':
+        args = parse_args_mp3()
+    elif prog_name == 'flac2alac':
+        args = parse_args_alac()
+
+    if args.jobs == 0:
+        args.jobs = len(os.sched_getaffinity(0))
+
+    return args
+
+
+def parse_args_mp3():
     description = \
         "Transencodes the specified FLAC files to MP3, while preserving as " \
         "much metadata as possible."
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("-j", "--jobs", type=int, dest="jobs",
-                        default=1, metavar="JOBS",
-                        help="number of transencodes to run in parallel")
-    parser.add_argument("-o", "--output", dest="outdir", default=".",
-                        metavar="DIR", help="output directory")
-    parser.add_argument('-V', metavar='QUALITY', dest='qual', default='0',
-                        choices=map(str, range(0, 10)),
-                        help='LAME VBR quality setting')
+    parser.add_argument('-j', '--jobs', type=int, dest='jobs',
+                        default=0, metavar='JOBS',
+                        help='number of transencodes to run in parallel (0=number of CPUs)')
+    parser.add_argument('-o', '--output', dest='outdir', default='.',
+                        metavar='DIR', help='output directory')
+    parser.add_argument('-V', metavar='QUALITY', type=qual_float, dest='qual',
+                        default=0, help='LAME VBR quality setting')
     parser.add_argument('files', metavar='FILE', nargs='+',
                         help='FLAC file(s) to transencode')
-    args = parser.parse_args()
 
-    if args.jobs == 0:
-        args.jobs = multiprocessing.cpu_count()
+    parser.set_defaults(make_destfile=make_destfile_mp3, do_encode=do_encode_mp3)
 
-    job_queue = multiprocessing.Queue()
+    return parser.parse_args()
 
-    destdirs = {}
-    for sourcefile in args.files:
-        destfile = os.path.join(args.outdir,
-                                os.path.splitext(sourcefile)[0] + ".mp3")
-        destdir = os.path.dirname(destfile)
 
-        if destdir not in destdirs:
-            try:
-                os.stat(destdir)
-            except OSError:
-                subprocess.call(["mkdir", "-p", destdir])
-            destdirs[destdir] = True
+def parse_args_alac():
+    description = \
+        "Transencodes the specified FLAC files to ALAC, while preserving as " \
+        "much metadata as possible."
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument('-j', '--jobs', type=int, dest='jobs',
+                        default=0, metavar='JOBS',
+                        help='number of transencodes to run in parallel (0=number of CPUs)')
+    parser.add_argument('-o', '--output', dest='outdir', default='.',
+                        metavar='DIR', help='output directory')
+    parser.add_argument('files', metavar='FILE', nargs='+',
+                        help='FLAC file(s) to transencode')
 
-        job_queue.put((do_encode, args, sourcefile, destfile))
+    parser.set_defaults(make_destfile=make_destfile_alac, do_encode=do_encode_alac)
 
-    workers = []
-    for _ in range(args.jobs):
-        tmp = multiprocessing.Process(target=worker_func, args=(job_queue,))
-        tmp.start()
-        workers.append(tmp)
+    return parser.parse_args()
 
+
+def qual_float(x):
+    x = float(x)
+    if x < 0.0 or x >= 10.0:
+        raise argparse.ArgumentTypeError("%r not in range [0, 10)" % (x,))
+    return x
+
+
+def do_encode_mp3(args, source, dest):
+    """Perform the transencode to MP3, and copy the metadata"""
     try:
-        for worker in workers:
-            worker.join()
+        print(source)
+
+        metadata = get_flac_metadata(source)
+
+        pargs = ["flac", "--decode", "--silent", "--stdout", source]
+        flacp = subprocess.Popen(pargs, stdout=subprocess.PIPE,
+                                 bufsize=1024*1024)
+
+        pargs = ["lame", "--quiet", "--noreplaygain", "-V", str(args.qual),
+                 "--add-id3v2", '-', dest]
+        lamep = subprocess.Popen(pargs, stdin=flacp.stdout, bufsize=0)
+
+        flacp.wait()
+        lamep.wait()
+
+        add_mp3_metadata(dest, metadata)
     except KeyboardInterrupt:
-        for worker in workers:
-            worker.terminate()
-            worker.join()
-        sys.exit(130)
-
-
-def worker_func(job_queue):
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    while not job_queue.empty():
         try:
-            job = job_queue.get(block=False)
-            job[0](*job[1:])
-        except multiprocessing.Queue.Empty:
+            os.unlink(dest)
+        except OSError:
             pass
+        flacp.terminate()
+        lamep.terminate()
+        flacp.wait()
+        lamep.wait()
 
 
-def do_encode(args, source, dest):
-    """Perform the transencode, and copy the metadata"""
-    print(source)
+def do_encode_alac(args, source, dest):
+    try:
+        print(source)
 
-    metadata = get_flac_metadata(source)
+        ffmpeg_args = ["ffmpeg", "-loglevel", "fatal", "-i", source,
+                       "-acodec", "alac", "-vcodec", "copy", dest]
+        ffmpeg = subprocess.Popen(ffmpeg_args)
 
-    pargs = ["flac", "--decode", "--silent", "--stdout", source]
-    flacp = subprocess.Popen(pargs, stdout=subprocess.PIPE, bufsize=1024*1024)
-
-    pargs = ["lame", "--quiet", "--noreplaygain", "-V", args.qual,
-             "--add-id3v2", '-', dest]
-    lamep = subprocess.Popen(pargs, stdin=flacp.stdout, bufsize=0)
-
-    flacp.wait()
-    lamep.wait()
-
-    add_mp3_metadata(dest, metadata)
+        ffmpeg.wait()
+    except KeyboardInterrupt:
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+        ffmpeg.terminate()
+        ffmpeg.wait()
 
 
 def get_flac_metadata(source):
